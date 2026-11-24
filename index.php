@@ -1,12 +1,13 @@
 
 <?php
-require_once __DIR__ . '/classes/Tenda.php';
-require_once __DIR__ . '/classes/SleepingBag.php';
-require_once __DIR__ . '/classes/Pelanggan.php';
-require_once __DIR__ . '/classes/Penyewaan.php';
+require_once 'classes/Tenda.php';
+require_once 'classes/SleepingBag.php';
+require_once 'classes/Pelanggan.php';
+require_once 'classes/Penyewaan.php';
 
 session_start();
 
+// Data alat camping
 if (!isset($_SESSION['alat'])) {
     $_SESSION['alat'] = [
         new Tenda("A01", "Tenda Dome", 50000, 5, 4),
@@ -18,208 +19,331 @@ if (!isset($_SESSION['alat'])) {
 $pesan = "";
 $struk = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $nama = trim($_POST['nama'] ?? '');
-    $telepon = trim($_POST['telepon'] ?? '');
-    $pilihan = (int)($_POST['alat'] ?? -1);
-    $hari = (int)($_POST['hari'] ?? 0);
-    $jumlah = (int)($_POST['jumlah'] ?? 0);
+// Proses form
+if (isset($_POST['tambah'])) {
+    $kode = $_POST['kode'];
+    $nama = $_POST['nama'];
+    $jenis = $_POST['jenis'];
+    $harga = (int) $_POST['harga'];
+    $stok = (int) $_POST['stok'];
+    $detail = $_POST['detail'];
 
-    if ($nama === '' || $telepon === '' ||
-        !isset($_SESSION['alat'][$pilihan]) ||
-        $hari <= 0 || $jumlah <= 0) {
-        $pesan = "Mohon isi semua data dengan benar.";
+    $ada = false;
+
+    foreach ($_SESSION['alat'] as $alat) {
+        if ($alat->getKode() == $kode) {
+            $ada = true;
+        }
+    }
+
+    if ($ada) {
+        $pesan = "Kode alat sudah digunakan!";
+    } elseif ($nama == "" || $kode == "" || $harga <= 0 || $stok < 0 || $detail == "") {
+        $pesan = "Data tidak boleh kosong!";
+    } elseif ($jenis == "Tenda") {
+        $_SESSION['alat'][] = new Tenda(
+            $kode, $nama, $harga, $stok, (int)$detail
+        );
+        $pesan = "Alat berhasil ditambahkan!";
     } else {
-        $alat = $_SESSION['alat'][$pilihan];
+        $_SESSION['alat'][] = new SleepingBag(
+            $kode, $nama, $harga, $stok, $detail
+        );
+        $pesan = "Alat berhasil ditambahkan!";
+    }
+}
 
-        if (!$alat->kurangiStok($jumlah)) {
-            $pesan = "Maaf, stok alat tidak mencukupi.";
+// Hapus alat
+if (isset($_POST['hapus'])) {
+    $index = (int) $_POST['index'];
+
+    if (isset($_SESSION['alat'][$index])) {
+        unset($_SESSION['alat'][$index]);
+        $_SESSION['alat'] = array_values($_SESSION['alat']);
+        $pesan = "Alat berhasil dihapus!";
+    }
+}
+
+// Edit alat
+if (isset($_POST['edit'])) {
+    $index = (int) $_POST['index'];
+
+    if (isset($_SESSION['alat'][$index])) {
+        $alat = $_SESSION['alat'][$index];
+
+        $nama = trim($_POST['nama']);
+        $harga = (int) $_POST['harga'];
+        $stok = (int) $_POST['stok'];
+
+        if ($nama == "" || $harga <= 0 || $stok < 0) {
+            $pesan = "Data edit tidak valid!";
         } else {
+            // Buat ulang object dengan data yang sudah diedit
+            if ($alat instanceof Tenda) {
+                $detail = $alat->getJenis();
+                preg_match('/\d+/', $detail, $hasil);
+                $kapasitas = (int) ($hasil[0] ?? 1);
+
+                $_SESSION['alat'][$index] = new Tenda(
+                    $alat->getKode(),
+                    $nama,
+                    $harga,
+                    $stok,
+                    $kapasitas
+                );
+            } else {
+                $detail = $alat->getJenis();
+                $bahan = str_replace("Sleeping bag berbahan ", "", $detail);
+
+                $_SESSION['alat'][$index] = new SleepingBag(
+                    $alat->getKode(),
+                    $nama,
+                    $harga,
+                    $stok,
+                    $bahan
+                );
+            }
+
+            $pesan = "Data berhasil diubah!";
+        }
+    }
+}
+
+// Penyewaan
+if (isset($_POST['sewa'])) {
+    $nama = trim($_POST['nama']);
+    $telepon = trim($_POST['telepon']);
+    $index = (int) $_POST['alat'];
+    $hari = (int) $_POST['hari'];
+    $jumlah = (int) $_POST['jumlah'];
+
+    if ($nama == "" || $telepon == "" || $hari <= 0 || $jumlah <= 0 || !isset($_SESSION['alat'][$index])) {
+        $pesan = "Isi data penyewaan dengan benar!";
+    } else {
+        $alat = $_SESSION['alat'][$index];
+
+        if ($alat->kurangiStok($jumlah)) {
             $pelanggan = new Pelanggan($nama, $telepon);
 
+            $subtotal = $alat->getHargaPerHari() * $hari * $jumlah;
+            $total = Penyewaan::hitungTotal(
+                $alat->getHargaPerHari(),
+                $hari,
+                $jumlah
+            );
+
             $struk = [
-                'nama' => $nama,
-                'telepon' => $telepon,
+                'nama' => $pelanggan->getNama(),
+                'telepon' => $pelanggan->getNomorTelepon(),
                 'alat' => $alat->getNama(),
                 'jumlah' => $jumlah,
                 'hari' => $hari,
-                'subtotal' => $alat->getHargaPerHari() * $hari * $jumlah,
-                'total' => Penyewaan::hitungTotal(
-                    $alat->getHargaPerHari(), $hari, $jumlah
-                )
+                'subtotal' => $subtotal,
+                'total' => $total
             ];
+        } else {
+            $pesan = "Stok alat tidak mencukupi!";
         }
     }
 }
 ?>
 
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sistem Penyewaan Alat Camping</title>
+    <title>Sistem Penyewaan Alat Camping</title>
 
-<style>
-* { box-sizing: border-box; }
+    <style>
+        body {
+            font-family: Arial;
+            background: white;
+            color: black;
+            margin: 20px;
+        }
 
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f1f5f1;
-    color: #26352b;
-}
+        header {
+            background: black;
+            color: white;
+            padding: 15px;
+            text-align: center;
+        }
 
-header {
-    background: #214b35;
-    color: white;
-    padding: 30px 8%;
-}
+        .container {
+            width: 90%;
+            margin: auto;
+        }
 
-header h1 { margin: 0; }
-header p { color: #d5e8d8; }
+        .card {
+            border: 1px solid black;
+            padding: 15px;
+            margin: 10px 0;
+        }
 
-.container {
-    max-width: 1050px;
-    margin: 35px auto;
-    padding: 0 20px;
-}
+        form {
+            border: 1px solid black;
+            padding: 15px;
+            margin-top: 20px;
+        }
 
-h2 { color: #214b35; }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0 10px;
+            box-sizing: border-box;
+        }
 
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 18px;
-}
+        button {
+            background: black;
+            color: white;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+        }
 
-.card, form, .receipt, .notice {
-    background: white;
-    padding: 22px;
-    border-radius: 12px;
-    box-shadow: 0 3px 12px #00000010;
-}
+        .hapus {
+            background: white;
+            color: black;
+            border: 1px solid black;
+        }
 
-.price {
-    color: #28764b;
-    font-weight: bold;
-    font-size: 19px;
-}
-
-form { margin-top: 30px; }
-
-label {
-    display: block;
-    margin-top: 15px;
-    font-weight: bold;
-}
-
-input, select {
-    width: 100%;
-    padding: 12px;
-    margin-top: 7px;
-    border: 1px solid #ccd5cc;
-    border-radius: 7px;
-}
-
-button {
-    margin-top: 22px;
-    background: #28764b;
-    color: white;
-    border: none;
-    padding: 13px 22px;
-    border-radius: 7px;
-    cursor: pointer;
-    font-weight: bold;
-}
-
-.notice, .receipt { margin-top: 20px; }
-
-footer {
-    text-align: center;
-    padding: 25px;
-    color: #718075;
-}
-</style>
+        .struk {
+            border: 1px solid black;
+            padding: 15px;
+            margin-top: 20px;
+        }
+    </style>
 </head>
 
 <body>
 
 <header>
-    <h1>🏕️ Camping Rental</h1>
+    <h1>Camping Rental</h1>
     <p>Sistem Penyewaan Alat Camping</p>
 </header>
 
 <div class="container">
 
-<h2>Daftar Alat Camping</h2>
+    <h2>Daftar Alat Camping</h2>
 
-<div class="grid">
-<?php foreach ($_SESSION['alat'] as $alat): ?>
-    <div class="card">
-        <h3><?= htmlspecialchars($alat->getNama()) ?></h3>
-        <p><?= htmlspecialchars($alat->getJenis()) ?></p>
-        <p class="price">
-            Rp<?= number_format($alat->getHargaPerHari(), 0, ',', '.') ?> / hari
-        </p>
-        <p>Stok tersedia: <?= $alat->getStok() ?></p>
-    </div>
-<?php endforeach; ?>
+    <?php foreach ($_SESSION['alat'] as $i => $alat) { ?>
+        <div class="card">
+            <h3><?php echo htmlspecialchars($alat->getNama()); ?></h3>
+
+            <p>Kode: <?php echo htmlspecialchars($alat->getKode()); ?></p>
+            <p>Jenis: <?php echo htmlspecialchars($alat->getJenis()); ?></p>
+
+            <p>Harga: Rp<?php echo number_format($alat->getHargaPerHari(), 0, ',', '.'); ?></p>
+
+            <p>Stok: <?php echo $alat->getStok(); ?></p>
+
+            <form method="POST">
+                <h3>Edit Alat</h3>
+
+                <input type="hidden" name="index" value="<?php echo $i; ?>">
+
+                <label>Nama Alat</label>
+                <input type="text" name="nama"
+                    value="<?php echo htmlspecialchars($alat->getNama()); ?>" required>
+
+                <label>Harga</label>
+                <input type="number" name="harga"
+                    value="<?php echo $alat->getHargaPerHari(); ?>" min="1" required>
+
+                <label>Stok</label>
+                <input type="number" name="stok"
+                    value="<?php echo $alat->getStok(); ?>" min="0" required>
+
+                <button type="submit" name="edit">Simpan Perubahan</button>
+            </form>
+
+            <form method="POST">
+                <input type="hidden" name="index" value="<?php echo $i; ?>">
+                <button type="submit" name="hapus" class="hapus"
+                    onclick="return confirm('Hapus alat ini?')">
+                    Hapus Alat
+                </button>
+            </form>
+        </div>
+    <?php } ?>
+
+    <form method="POST">
+        <h2>Tambah Alat Camping</h2>
+
+        <label>Kode Alat</label>
+        <input type="text" name="kode" placeholder="Contoh A04" required>
+
+        <label>Nama Alat</label>
+        <input type="text" name="nama" required>
+
+        <label>Jenis Alat</label>
+        <select name="jenis">
+            <option value="Tenda">Tenda</option>
+            <option value="SleepingBag">Sleeping Bag</option>
+        </select>
+
+        <label>Harga per Hari</label>
+        <input type="number" name="harga" min="1" required>
+
+        <label>Stok</label>
+        <input type="number" name="stok" min="0" required>
+
+        <label>Kapasitas Tenda / Bahan Sleeping Bag</label>
+        <input type="text" name="detail" required>
+
+        <button type="submit" name="tambah">Tambah Alat</button>
+    </form>
+
+    <form method="POST">
+        <h2>Form Penyewaan</h2>
+
+        <label>Nama Pelanggan</label>
+        <input type="text" name="nama" required>
+
+        <label>Nomor Telepon</label>
+        <input type="text" name="telepon" required>
+
+        <label>Pilih Alat</label>
+        <select name="alat" required>
+            <?php foreach ($_SESSION['alat'] as $i => $alat) { ?>
+                <option value="<?php echo $i; ?>"
+                    <?php echo $alat->getStok() <= 0 ? 'disabled' : ''; ?>>
+                    <?php echo htmlspecialchars($alat->getNama()); ?>
+                    - Rp<?php echo number_format($alat->getHargaPerHari(), 0, ',', '.'); ?>
+                </option>
+            <?php } ?>
+        </select>
+
+        <label>Lama Sewa (Hari)</label>
+        <input type="number" name="hari" min="1" required>
+
+        <label>Jumlah Unit</label>
+        <input type="number" name="jumlah" min="1" required>
+
+        <button type="submit" name="sewa">Sewa Sekarang</button>
+    </form>
+
+    <?php if ($pesan != "") { ?>
+        <p><?php echo htmlspecialchars($pesan); ?></p>
+    <?php } ?>
+
+    <?php if ($struk != null) { ?>
+        <div class="struk">
+            <h2>Struk Penyewaan</h2>
+
+            <p>Nama: <?php echo htmlspecialchars($struk['nama']); ?></p>
+            <p>Telepon: <?php echo htmlspecialchars($struk['telepon']); ?></p>
+            <p>Alat: <?php echo htmlspecialchars($struk['alat']); ?></p>
+            <p>Jumlah: <?php echo $struk['jumlah']; ?> unit</p>
+            <p>Lama Sewa: <?php echo $struk['hari']; ?> hari</p>
+
+            <p>Subtotal: Rp<?php echo number_format($struk['subtotal'], 0, ',', '.'); ?></p>
+            <p>Biaya Admin: Rp5.000</p>
+
+            <h3>Total: Rp<?php echo number_format($struk['total'], 0, ',', '.'); ?></h3>
+        </div>
+    <?php } ?>
+
 </div>
-
-<form method="POST">
-    <h2>Form Penyewaan</h2>
-
-    <label>Nama Pelanggan</label>
-    <input type="text" name="nama" required>
-
-    <label>Nomor Telepon</label>
-    <input type="text" name="telepon" required>
-
-    <label>Pilih Alat Camping</label>
-    <select name="alat" required>
-        <?php foreach ($_SESSION['alat'] as $i => $alat): ?>
-            <option value="<?= $i ?>">
-                <?= htmlspecialchars($alat->getNama()) ?>
-                - Rp<?= number_format($alat->getHargaPerHari(), 0, ',', '.') ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-
-    <label>Lama Sewa (Hari)</label>
-    <input type="number" name="hari" min="1" required>
-
-    <label>Jumlah Unit</label>
-    <input type="number" name="jumlah" min="1" required>
-
-    <button type="submit">Sewa Sekarang</button>
-</form>
-
-<?php if ($pesan): ?>
-    <div class="notice">
-        <?= htmlspecialchars($pesan) ?>
-    </div>
-<?php endif; ?>
-
-<?php if ($struk): ?>
-    <div class="receipt">
-        <h2>Transaksi Berhasil!</h2>
-        <p>Nama: <?= htmlspecialchars($struk['nama']) ?></p>
-        <p>Telepon: <?= htmlspecialchars($struk['telepon']) ?></p>
-        <p>Alat: <?= htmlspecialchars($struk['alat']) ?></p>
-        <p>Jumlah: <?= $struk['jumlah'] ?> unit</p>
-        <p>Lama sewa: <?= $struk['hari'] ?> hari</p>
-        <p>Subtotal: Rp<?= number_format($struk['subtotal'], 0, ',', '.') ?></p>
-        <p>Biaya admin: Rp5.000</p>
-        <h3>Total: Rp<?= number_format($struk['total'], 0, ',', '.') ?></h3>
-    </div>
-<?php endif; ?>
-
-</div>
-
-<footer>
-    Sistem Penyewaan Alat Camping | PHP OOP
-</footer>
 
 </body>
 </html>
